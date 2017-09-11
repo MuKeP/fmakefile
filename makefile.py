@@ -39,8 +39,6 @@ def get_name_len(string):
     return result.start() if result else None
 
 
-mkfile = open('Makefile', 'w')
-
 parser = OptionParser()
 parser.add_option('--config',
                   dest='configuration',
@@ -57,7 +55,7 @@ parser.add_option('--compiler',
 parser.add_option('--pparams',
                   dest='compiler_pparams',
                   action='store',
-                  default='/O3 /Qdiag-disable:8291,7954 /nologo',
+                  default=None,
                   help='specify primary compiler parameters')
 
 parser.add_option('--sparams',
@@ -80,17 +78,14 @@ parser.add_option('--make',
 
 (options, args) = parser.parse_args()
 
-pparams_set = '--pparams' in ' '.join(sys.argv[1:])
-
 if not options.appname.endswith('.exe'):
     options.appname += '.exe'
 
-if options.configuration == 'debug':
-    if not pparams_set:
+if not options.compiler_pparams:
+    if options.configuration == 'debug':
         options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:8291,7954 /nologo'
 
-if options.configuration == 'release':
-    if not pparams_set:
+    if options.configuration == 'release':
         options.compiler_pparams = '/O3 /Qdiag-disable:8291,7954 /nologo'
 
 fileset = []
@@ -136,7 +131,7 @@ for file in fileset:  # location of program units
         if 'function' in uline and not uline.startswith('end') and non_interfaced:
             words = uline.split(' ')
             position = words.index('function')
-            filecontains['functions'].append(words[position + 1][:get_name_len(words[position + 1])])
+            filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
 
     contains[file] = dict(filecontains)
 
@@ -158,8 +153,6 @@ while files_unproc:
     else:
         raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence.')
 
-#print(module_location); stop()
-
 prepare_objs = [obj.replace('.f90', '.obj') for obj in obj_order]
 
 line_width = 80
@@ -169,9 +162,9 @@ while prepare_objs:
     while True:
         count += 1
 
-        width = sum([len(obj) for obj in prepare_objs[:count]]) + (count - 1) + 2
+        width = sum([len(obj) for obj in prepare_objs[:count]]) + (count-1) + 2
         if width > line_width:
-            obj_string += ' '.join(prepare_objs[:count - 1]) + ' \\\n'
+            obj_string += ' '.join(prepare_objs[:count-1]) + ' \\\n'
             prepare_objs = prepare_objs[count - 1:]
             break
 
@@ -180,6 +173,7 @@ while prepare_objs:
             prepare_objs = []
             break
 
+mkfile = open('Makefile', 'w')
 mkfile.write('\n')
 mkfile.write('NAME=' + options.appname + '\n')
 mkfile.write('COM=' + options.compiler + '\n')
@@ -194,36 +188,47 @@ for obj in obj_order:
     deps = [module_location[dep].replace('.f90', '.obj') for dep in contains[obj]['dependencies']]
     deps.append(obj)
     mkfile.write(obj.replace('.f90', '.obj') + ': ' + ' '.join(deps) + '\n')
-    mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) ' + obj + '\n')
+    mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) ' + obj + ' -o ' + obj.replace('.f90', '.obj') + '\n')
+
+rm_recursive_obj = '\tfind | grep -E "*\.obj" | xargs rm 2>nul\n'
+rm_recursive_mod = '\tfind | grep -E "*\.mod" | xargs rm 2>nul\n'
 
 mkfile.write('\n')
 mkfile.write('clean:\n')
-mkfile.write('\terase *.obj\n')
-mkfile.write('\terase *.mod\n\n')
+mkfile.write(rm_recursive_obj)
+mkfile.write(rm_recursive_mod + '\n')
 
 mkfile.write('cleanall:\n')
-mkfile.write('\terase *.obj\n')
-mkfile.write('\terase *.mod\n')
-mkfile.write('\terase $(NAME)\n\n')
+mkfile.write(rm_recursive_obj)
+mkfile.write(rm_recursive_mod)
+mkfile.write('\trm $(NAME)\n\n')
 
 mkfile.write('remake:\n')
-mkfile.write('\terase *.obj\n')
-mkfile.write('\terase *.mod\n')
-mkfile.write('\terase $(NAME)\n')
+mkfile.write(rm_recursive_obj)
+mkfile.write(rm_recursive_mod)
+mkfile.write('\trm $(NAME)\n')
 mkfile.write('\tnmake -f Makefile\n\n')
 
 mkfile.write('build:\n')
-mkfile.write('\terase *.obj\n')
-mkfile.write('\terase *.mod\n')
-mkfile.write('\terase $(NAME)\n')
+mkfile.write(rm_recursive_obj)
+mkfile.write(rm_recursive_mod)
+mkfile.write('\trm $(NAME)\n')
 mkfile.write('\tnmake -f Makefile\n')
-mkfile.write('\terase *.obj\n')
-mkfile.write('\terase *.mod\n\n')
+mkfile.write(rm_recursive_obj)
+mkfile.write(rm_recursive_mod + '\n')
 
+mkfile.write('rm_objs:\n')
+mkfile.write(rm_recursive_obj + '\n')
+
+mkfile.write('rm_mods:\n')
+mkfile.write(rm_recursive_mod + '\n')
+
+'''
 mkfile.write('set_env:\n')
 mkfile.write('\t' +
     r'C:\"Program Files (x86)"\Intel\ComposerXE-2011\bin\compilervars_arch.bat intel64' +
     '\n\n')
+'''
 
 mkfile.close()
 
@@ -232,7 +237,6 @@ if options.make:
 
 '''
 print ('Obj files order:',obj_order,end='\n\n')
-
 print ('Program',program['name'],'enter is located in',program['location'])
 print ('*'*78)
 for file in fileset:
