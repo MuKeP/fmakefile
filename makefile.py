@@ -1,9 +1,7 @@
 import os
 import re
 import sys
-from sys import exit as stop
-
-from optparse import OptionParser
+import optparse
 
 
 class FortranCodeError(Exception):
@@ -39,7 +37,7 @@ def get_name_len(string):
     return result.start() if result else None
 
 
-parser = OptionParser()
+parser = optparse.OptionParser()
 parser.add_option('--config',
                   dest='configuration',
                   action='store',
@@ -76,6 +74,12 @@ parser.add_option('--make',
                   default=False,
                   help='call make')
 
+parser.add_option('--ignore-path',
+                  dest='ignore',
+                  action='store',
+                  default=None,
+                  help='ignore path (seperate by ;)')
+
 (options, args) = parser.parse_args()
 
 if not options.appname.endswith('.exe'):
@@ -88,9 +92,19 @@ if not options.compiler_pparams:
     if options.configuration == 'release':
         options.compiler_pparams = '/O3 /Qdiag-disable:8291,7954 /nologo'
 
+if options.ignore:
+    ignore_path_set = options.ignore.split(';')
+
 fileset = []
 for (dirpath, dirnames, filenames) in os.walk('.'):  # collect all source files recursively
     fileset.extend([os.path.join(dirpath, file) for file in filenames if file.endswith('.f90')])
+
+ignore_path_set = ['.\\' + ignored for ignored in ignore_path_set]
+
+for file in fileset[::-1]:
+    for ignored in ignore_path_set:
+        if file.startswith(ignored):
+            fileset.remove(file)
 
 contains = {}; program = {}; non_interfaced = True; module_location={}
 for file in fileset:  # location of program units
@@ -165,7 +179,7 @@ while prepare_objs:
         width = sum([len(obj) for obj in prepare_objs[:count]]) + (count-1) + 2
         if width > line_width:
             obj_string += ' '.join(prepare_objs[:count-1]) + ' \\\n'
-            prepare_objs = prepare_objs[count - 1:]
+            prepare_objs = prepare_objs[count-1:]
             break
 
         if count == len(prepare_objs):
@@ -174,21 +188,25 @@ while prepare_objs:
             break
 
 mkfile = open('Makefile', 'w')
-mkfile.write('\n')
-mkfile.write('NAME=' + options.appname + '\n')
-mkfile.write('COM=' + options.compiler + '\n')
-mkfile.write('PFLAGS=' + options.compiler_pparams + '\n')
-mkfile.write('SFLAGS=' + options.compiler_sparams + '\n\n')
+
+mkfile.write('# generated automatically with command line:\n')
+mkfile.write('# {} {} \n\n'.format(os.path.split(sys.argv[0])[1], ' '.join(sys.argv[1:])))
+
+mkfile.write('NAME={}\n'.format(options.appname))
+mkfile.write('COM={}\n'.format(options.compiler))
+mkfile.write('PFLAGS={}\n'.format(options.compiler_pparams))
+mkfile.write('SFLAGS={}\n'.format(options.compiler_sparams))
 
 mkfile.write(obj_string + '\n\n')
-mkfile.write('$(NAME): $(OBJS)' + '\n')
-mkfile.write('\t' + '$(COM) $(OBJS) $(SFLAGS) -o $(NAME)' + '\n\n')
+mkfile.write('$(NAME): $(OBJS)\n')
+mkfile.write('\t$(COM) $(OBJS) $(SFLAGS) -o $(NAME)\n\n')
 
 for obj in obj_order:
     deps = [module_location[dep].replace('.f90', '.obj') for dep in contains[obj]['dependencies']]
     deps.append(obj)
     mkfile.write(obj.replace('.f90', '.obj') + ': ' + ' '.join(deps) + '\n')
-    mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) ' + obj + ' -o ' + obj.replace('.f90', '.obj') + '\n')
+    mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) {} -o {}\n'.format(
+                 obj, obj.replace('.f90', '.obj')))
 
 rm_recursive_obj = '\tfind | grep -E "*\.obj" | xargs rm 2>nul\n'
 rm_recursive_mod = '\tfind | grep -E "*\.mod" | xargs rm 2>nul\n'
