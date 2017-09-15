@@ -1,10 +1,16 @@
+#!/usr/bin/python3
 import os
 import re
 import sys
 import optparse
+import platform
 
 
 class FortranCodeError(Exception):
+    pass
+
+
+class ArgumentError(Exception):
     pass
 
 
@@ -14,14 +20,20 @@ available_modules = ['ifport', 'ifposix', 'ifcore', 'ifqwin', 'iflogm', 'ifcom',
                      'dfport', 'dflib', 'dfwin', 'dflogm', 'dfauto']
 
 
-def isQuoted(line, position):  # assuming that everything is fine with quotes
+if platform.system() == 'Windows':
+    null_device = 'nul'
+elif platform.system() == 'Linux':
+    null_device = '/dev/null'
+
+
+def isNotQuoted(line, position):  # assuming that everything is fine with quotes
     if not any([(quote in line) for quote in quotes_set]):
-        return False
+        return True
 
     quote_status = -1
     for pos, symbol in enumerate(line):
         if pos == position:
-            return True if quote_status != -1 else False
+            return False if quote_status != -1 else True
 
         if symbol in quotes_set:
             current_quote = [quote == symbol for quote in quotes_set].index(True)
@@ -59,13 +71,13 @@ parser.add_option('--pparams',
 parser.add_option('--sparams',
                   dest='compiler_sparams',
                   action='store',
-                  default='/Qopenmp',
+                  default=None,
                   help='specify secondary compiler parameters')
 
 parser.add_option('--appname',
                   dest='appname',
                   action='store',
-                  default='appname.exe',
+                  default='appname',
                   help='specify application name')
 
 parser.add_option('--make',
@@ -80,31 +92,88 @@ parser.add_option('--ignore-path',
                   default=None,
                   help='ignore path (seperate by ;)')
 
+parser.add_option('--obj-extension',
+                  dest='obj_extension',
+                  action='store',
+                  default=None,
+                  help='specify extension for object files')
+
+parser.add_option('--makefile-name',
+                  dest='mfname',
+                  action='store',
+                  default='Makefile',
+                  help='specify name for makefile')
+
+parser.add_option('--dependence',
+                  dest='dependency',
+                  action='store',
+                  default='object files',
+                  help='specify dependence')
+
+parser.add_option('--extension',
+                  dest='extension',
+                  action='store',
+                  default='.f90',
+                  help='specify source files extension')
+
 (options, args) = parser.parse_args()
 
-if not options.appname.endswith('.exe'):
-    options.appname += '.exe'
+# ()()()()()()()()()()()()()()()()()() PROCEED ARGUMENTS ()()()()()()()()()()()()()()()()()() #
+
+if options.dependency not in ['object files', 'modules']:
+    raise ArgumentError('Invalid "--dependence" value. Should be in ["object files", "modules"].')
+
+if platform.system() == 'Windows':
+    if options.appname.endswith('.x'):
+        options.appname.replace('.x', '.exe')
+
+    if not options.appname.endswith('.exe'):
+        options.appname += '.exe'
+
+elif platform.system() == 'Linux':
+    if options.appname.endswith('.exe'):
+        options.appname.replace('.exe', '.x')
+
+    if not options.appname.endswith('.x'):
+        options.appname += '.x'
+
+if not options.obj_extension:
+    options.obj_extension = '.obj'
 
 if not options.compiler_pparams:
     if options.configuration == 'debug':
-        options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:8291,7954 /nologo'
+        if platform.system() == 'Windows':
+            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:8291,7954 /nologo'
+        elif platform.system() == 'Linux':
+            options.compiler_pparams = '-O1 -C -traceback -diag-disable:8291,7954 -nologo'
 
     if options.configuration == 'release':
-        options.compiler_pparams = '/O3 /Qdiag-disable:8291,7954 /nologo'
+        if platform.system() == 'Windows':
+            options.compiler_pparams = '/O3 /Qdiag-disable 8291,7954 /nologo'
+        elif platform.system() == 'Linux':
+            options.compiler_pparams = '-O3 -diag-disable 8291,7954 -nologo'
 
+if not options.compiler_sparams:
+    if platform.system() == 'Windows':
+        options.compiler_sparams = '/Qopenmp'
+    elif platform.system() == 'Linux':
+        options.compiler_sparams = '-openmp'
+
+ignore_path_set = []
 if options.ignore:
     ignore_path_set = options.ignore.split(';')
 
 fileset = []
 for (dirpath, dirnames, filenames) in os.walk('.'):  # collect all source files recursively
-    fileset.extend([os.path.join(dirpath, file) for file in filenames if file.endswith('.f90')])
+    fileset.extend([os.path.join(dirpath, file)
+                    for file in filenames if file.endswith(options.extension)])
 
-ignore_path_set = ['.\\' + ignored for ignored in ignore_path_set]
-
-for file in fileset[::-1]:
-    for ignored in ignore_path_set:
-        if file.startswith(ignored):
-            fileset.remove(file)
+if ignore_path_set:
+    ignore_path_set = ['.' + os.path.sep + ignored for ignored in ignore_path_set]
+    for file in fileset[::-1]:
+        for ignored in ignore_path_set:
+            if file.startswith(ignored):
+                fileset.remove(file)
 
 contains = {}; program = {}; non_interfaced = True; module_location={}
 for file in fileset:  # location of program units
@@ -118,34 +187,40 @@ for file in fileset:  # location of program units
         statement, *other = uline.split(' ')
 
         if statement == 'interface':
-            non_interfaced = False
-            continue
+            if isNotQuoted(statement, statement.index('interface')):
+                non_interfaced = False
+                continue
 
         if uline.startswith('end interface') or uline.startswith('endinterface'):
             non_interfaced = True
             continue
 
         if statement == 'module' and other[0] != 'procedure':
-            module_name = other[0].strip()
-            filecontains['modules'].append(module_name)
-            module_location[module_name] = file
+            if isNotQuoted(statement, statement.index('module')):
+                module_name = other[0].strip()
+                filecontains['modules'].append(module_name)
+                module_location[module_name] = file
 
         if statement == 'subroutine' and non_interfaced:
-            filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
+            if isNotQuoted(statement, statement.index('subroutine')):
+                filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
 
         if statement == 'program':
-            if program:
-                raise FortranCodeError('Found more than one program statement.')
-            program = {'name': other[0], 'location': file}
+            if isNotQuoted(statement, statement.index('program')):
+                if program:
+                    raise FortranCodeError('Found more than one program statement.')
+                program = {'name': other[0], 'location': file}
 
         if statement == 'use':
-            if other[0][:get_name_len(other[0])] not in available_modules:
-                filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
+            if isNotQuoted(statement, statement.index('use')):
+                if other[0][:get_name_len(other[0])] not in available_modules:
+                    filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
 
         if 'function' in uline and not uline.startswith('end') and non_interfaced:
-            words = uline.split(' ')
-            position = words.index('function')
-            filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
+            if isNotQuoted(uline, uline.index('function')):
+                words = uline.split(' ')
+                position = words.index('function')
+                filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
 
     contains[file] = dict(filecontains)
 
@@ -167,7 +242,7 @@ while files_unproc:
     else:
         raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence.')
 
-prepare_objs = [obj.replace('.f90', '.obj') for obj in obj_order]
+prepare_objs = [obj.replace(options.extension, options.obj_extension) for obj in obj_order]
 
 line_width = 80
 obj_string = 'OBJS= \\\n'
@@ -187,10 +262,11 @@ while prepare_objs:
             prepare_objs = []
             break
 
-mkfile = open('Makefile', 'w')
+mkfile = open(options.mfname, 'w')
 
 mkfile.write('# generated automatically with command line:\n')
-mkfile.write('# {} {} \n\n'.format(os.path.split(sys.argv[0])[1], ' '.join(sys.argv[1:])))
+mkfile.write('# {} {} \n'.format(os.path.split(sys.argv[0])[1], ' '.join(sys.argv[1:])))
+mkfile.write('# paltform: {}\n\n'.format(platform.system()))
 
 mkfile.write('NAME={}\n'.format(options.appname))
 mkfile.write('COM={}\n'.format(options.compiler))
@@ -202,44 +278,51 @@ mkfile.write('$(NAME): $(OBJS)\n')
 mkfile.write('\t$(COM) $(OBJS) $(SFLAGS) -o $(NAME)\n\n')
 
 for obj in obj_order:
-    deps = [module_location[dep].replace('.f90', '.obj') for dep in contains[obj]['dependencies']]
+
+    if options.dependency == 'object files':
+        deps = [module_location[dep].replace(options.extension, options.obj_extension)
+                for dep in contains[obj]['dependencies']]
+    else:
+        deps = [dep + '.mod' for dep in contains[obj]['dependencies']]
+
     deps.append(obj)
-    mkfile.write(obj.replace('.f90', '.obj') + ': ' + ' '.join(deps) + '\n')
+    mkfile.write(obj.replace(options.extension, options.obj_extension) + ': ' + ' '.join(deps) + '\n')
     mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) {} -o {}\n'.format(
-                 obj, obj.replace('.f90', '.obj')))
+                 obj, obj.replace(options.extension, options.obj_extension)))
 
-rm_recursive_obj = '\tfind | grep -E "*\.obj" | xargs rm 2>nul\n'
-rm_recursive_mod = '\tfind | grep -E "*\.mod" | xargs rm 2>nul\n'
+rm_recursive_obj = ('\tfind | grep -E "*\\' +
+                    options.obj_extension + '$" | xargs rm 2>' + null_device + '\n')
 
-mkfile.write('\n')
-mkfile.write('clean:\n')
-mkfile.write(rm_recursive_obj)
-mkfile.write(rm_recursive_mod + '\n')
+rm_recursive_mod = ('\tfind | grep -E "*\\' +
+                    '.mod$" | xargs rm 2>' + null_device + '\n')
 
-mkfile.write('cleanall:\n')
-mkfile.write(rm_recursive_obj)
-mkfile.write(rm_recursive_mod)
-mkfile.write('\trm $(NAME)\n\n')
+if platform.system() == 'Windows':
+    call_makefile = 'nmake -f ' + options.mfname
+elif platform.system() == 'Linux':
+    call_makefile = 'make -f ' + options.mfname
 
-mkfile.write('remake:\n')
-mkfile.write(rm_recursive_obj)
-mkfile.write(rm_recursive_mod)
-mkfile.write('\trm $(NAME)\n')
-mkfile.write('\tnmake -f Makefile\n\n')
-
-mkfile.write('build:\n')
-mkfile.write(rm_recursive_obj)
-mkfile.write(rm_recursive_mod)
-mkfile.write('\trm $(NAME)\n')
-mkfile.write('\tnmake -f Makefile\n')
-mkfile.write(rm_recursive_obj)
-mkfile.write(rm_recursive_mod + '\n')
-
-mkfile.write('rm_objs:\n')
+mkfile.write('\nrm_objs:\n')
 mkfile.write(rm_recursive_obj + '\n')
 
 mkfile.write('rm_mods:\n')
 mkfile.write(rm_recursive_mod + '\n')
+
+mkfile.write('clean:\n')
+mkfile.write('\t$(MAKE) rm_objs\n')
+mkfile.write('\t$(MAKE) rm_mods\n\n')
+
+mkfile.write('cleanall:\n')
+mkfile.write('\t$(MAKE) clean\n')
+mkfile.write('\trm $(NAME)\n\n')
+
+mkfile.write('remake:\n')
+mkfile.write('\t$(MAKE) cleanall\n')
+mkfile.write('\t$(MAKE)\n\n')
+
+mkfile.write('build:\n')
+mkfile.write('\t$(MAKE) cleanall\n')
+mkfile.write('\t$(MAKE)\n')
+mkfile.write('\t$(MAKE) clean\n\n')
 
 '''
 mkfile.write('set_env:\n')
@@ -251,7 +334,7 @@ mkfile.write('\t' +
 mkfile.close()
 
 if options.make:
-    os.system('nmake -f Makefile')
+    os.system(call_makefile)
 
 '''
 print ('Obj files order:',obj_order,end='\n\n')
