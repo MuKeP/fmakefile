@@ -36,7 +36,7 @@ def isNotQuoted(line, position):  # assuming that everything is fine with quotes
             return False if quote_status != -1 else True
 
         if symbol in quotes_set:
-            current_quote = [quote == symbol for quote in quotes_set].index(True)
+            current_quote = quotes_set.index(symbol)
 
             if quote_status == -1:
                 quote_status = current_quote
@@ -120,6 +120,9 @@ parser.add_option('--extension',
 
 # ()()()()()()()()()()()()()()()()()() PROCEED ARGUMENTS ()()()()()()()()()()()()()()()()()() #
 
+if options.configuration not in ['debug', 'release']:
+	raise ArgumentError('Invalid "--config" value. Should be in ["debug", "release"].')
+
 if options.dependency not in ['object files', 'modules']:
     raise ArgumentError('Invalid "--dependence" value. Should be in ["object files", "modules"].')
 
@@ -143,15 +146,15 @@ if not options.obj_extension:
 if not options.compiler_pparams:
     if options.configuration == 'debug':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:8291,7954 /nologo'
+            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:7000,7954,8291 /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O1 -C -traceback -diag-disable:8291,7954 -nologo'
+            options.compiler_pparams = '-O1 -C -traceback -diag-disable 7000,7954,8291 -nologo'
 
     if options.configuration == 'release':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O3 /Qdiag-disable 8291,7954 /nologo'
+            options.compiler_pparams = '/O3 /Qdiag-disable:7000,7954,8291 /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O3 -diag-disable 8291,7954 -nologo'
+            options.compiler_pparams = '-O3 -diag-disable 7000,7954,8291 -nologo'
 
 if not options.compiler_sparams:
     if platform.system() == 'Windows':
@@ -180,7 +183,7 @@ for file in fileset:  # location of program units
     filecontains = {'modules': [], 'subroutines': [], 'functions': [], 'dependencies': []}
     for line in open(file, 'r'):  # assume that key statements are written without ;&!
 
-        if '!' in line:
+        if '!' in line and isNotQuoted(line, line.index('!')):
             line = line[:line.index('!')]  # remove comment
 
         uline = line.lower().strip()
@@ -200,27 +203,32 @@ for file in fileset:  # location of program units
                 module_name = other[0].strip()
                 filecontains['modules'].append(module_name)
                 module_location[module_name] = file
+                continue
 
         if statement == 'subroutine' and non_interfaced:
             if isNotQuoted(statement, statement.index('subroutine')):
                 filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
+                continue
 
         if statement == 'program':
             if isNotQuoted(statement, statement.index('program')):
                 if program:
                     raise FortranCodeError('Found more than one program statement.')
                 program = {'name': other[0], 'location': file}
+                continue
 
         if statement == 'use':
             if isNotQuoted(statement, statement.index('use')):
                 if other[0][:get_name_len(other[0])] not in available_modules:
                     filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
+                    continue
 
         if 'function' in uline and not uline.startswith('end') and non_interfaced:
             if isNotQuoted(uline, uline.index('function')):
                 words = uline.split(' ')
                 position = words.index('function')
                 filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
+                continue
 
     contains[file] = dict(filecontains)
 
@@ -291,10 +299,10 @@ for obj in obj_order:
                  obj, obj.replace(options.extension, options.obj_extension)))
 
 rm_recursive_obj = ('\tfind | grep -E "*\\' +
-                    options.obj_extension + '$" | xargs rm 2>' + null_device + '\n')
+                    options.obj_extension + '" | xargs rm 2>' + null_device + '\n')
 
 rm_recursive_mod = ('\tfind | grep -E "*\\' +
-                    '.mod$" | xargs rm 2>' + null_device + '\n')
+                    '.mod" | xargs rm 2>' + null_device + '\n')
 
 if platform.system() == 'Windows':
     call_makefile = 'nmake -f ' + options.mfname
