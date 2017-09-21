@@ -317,13 +317,18 @@ if platform.system() == 'Windows':
 elif platform.system() == 'Linux':
     call_makefile = 'make -f ' + options.mfname
 
+mkfile.write('\n.PHONY: rm_objs rm_mods rm_app clean cleanall remake build set_env\n')
+
 mkfile.write('\nrm_objs:\n')
 #mkfile.write(rm_recursive_obj + '\n')
-mkfile.write('\trm $(OBJS)\n\n')
+mkfile.write('\trm -f $(OBJS)\n\n')
 
 mkfile.write('rm_mods:\n')
 #mkfile.write(rm_recursive_mod + '\n')
-mkfile.write('\trm $(MODS)\n\n')
+mkfile.write('\trm -f $(MODS)\n\n')
+
+mkfile.write('rm_app:\n')
+mkfile.write('\trm -f $(NAME)\n\n')
 
 mkfile.write('clean:\n')
 mkfile.write('\t$(MAKE) rm_objs\n')
@@ -331,7 +336,7 @@ mkfile.write('\t$(MAKE) rm_mods\n\n')
 
 mkfile.write('cleanall:\n')
 mkfile.write('\t$(MAKE) clean\n')
-mkfile.write('\trm $(NAME)\n\n')
+mkfile.write('\t$(MAKE) rm_app\n\n')
 
 mkfile.write('remake:\n')
 mkfile.write('\t$(MAKE) cleanall\n')
