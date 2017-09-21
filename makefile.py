@@ -18,6 +18,7 @@ quotes_set = "'" + '"'
 name_pattern = 'a-zA-Z0-9_'
 available_modules = ['ifport', 'ifposix', 'ifcore', 'ifqwin', 'iflogm', 'ifcom', 'ifauto',
                      'dfport', 'dflib', 'dfwin', 'dflogm', 'dfauto']
+ignore_warnings = '7000,7954,8290,8291'
 
 
 if platform.system() == 'Windows':
@@ -47,6 +48,26 @@ def isNotQuoted(line, position):  # assuming that everything is fine with quotes
 def get_name_len(string):
     result = re.search('[^' + name_pattern + ']', string)
     return result.start() if result else None
+
+
+def get_file_list(prefix, object_list, line_width=80):
+    result = prefix + '= \\\n'
+    while object_list:
+        count = 0
+        while True:
+            count += 1
+
+            width = sum([len(obj) for obj in object_list[:count]]) + (count-1) + 2
+            if width > line_width:
+                result += ' '.join(object_list[:count-1]) + ' \\\n'
+                object_list = object_list[count-1:]
+                break
+
+            if count == len(object_list):
+                result += ' '.join(object_list[:count]) + '\n'
+                object_list = []
+                break
+    return result
 
 
 parser = optparse.OptionParser()
@@ -146,15 +167,15 @@ if not options.obj_extension:
 if not options.compiler_pparams:
     if options.configuration == 'debug':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:7000,7954,8291 /nologo'
+            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:' + ignore_warnings + ' /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O1 -C -traceback -diag-disable 7000,7954,8291 -nologo'
+            options.compiler_pparams = '-O1 -C -traceback -diag-disable ' + ignore_warnings + ' -nologo'
 
     if options.configuration == 'release':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O3 /Qdiag-disable:7000,7954,8291 /nologo'
+            options.compiler_pparams = '/O3 /Qdiag-disable:' + ignore_warnings + ' /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O3 -diag-disable 7000,7954,8291 -nologo'
+            options.compiler_pparams = '-O3 -diag-disable ' + ignore_warnings + ' -nologo'
 
 if not options.compiler_sparams:
     if platform.system() == 'Windows':
@@ -250,25 +271,11 @@ while files_unproc:
     else:
         raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence.')
 
-prepare_objs = [obj.replace(options.extension, options.obj_extension) for obj in obj_order]
+#prepare_objs =
+obj_string = get_file_list('OBJS',
+                           [obj.replace(options.extension, options.obj_extension) for obj in obj_order])
 
-line_width = 80
-obj_string = 'OBJS= \\\n'
-while prepare_objs:
-    count = 0
-    while True:
-        count += 1
-
-        width = sum([len(obj) for obj in prepare_objs[:count]]) + (count-1) + 2
-        if width > line_width:
-            obj_string += ' '.join(prepare_objs[:count-1]) + ' \\\n'
-            prepare_objs = prepare_objs[count-1:]
-            break
-
-        if count == len(prepare_objs):
-            obj_string += ' '.join(prepare_objs[:count]) + '\n'
-            prepare_objs = []
-            break
+mod_string = get_file_list('MODS', [module + '.mod' for module in modules_proc])
 
 mkfile = open(options.mfname, 'w')
 
@@ -279,9 +286,10 @@ mkfile.write('# paltform: {}\n\n'.format(platform.system()))
 mkfile.write('NAME={}\n'.format(options.appname))
 mkfile.write('COM={}\n'.format(options.compiler))
 mkfile.write('PFLAGS={}\n'.format(options.compiler_pparams))
-mkfile.write('SFLAGS={}\n'.format(options.compiler_sparams))
+mkfile.write('SFLAGS={}\n\n'.format(options.compiler_sparams))
 
 mkfile.write(obj_string + '\n\n')
+mkfile.write(mod_string + '\n\n')
 mkfile.write('$(NAME): $(OBJS)\n')
 mkfile.write('\t$(COM) $(OBJS) $(SFLAGS) -o $(NAME)\n\n')
 
@@ -310,10 +318,12 @@ elif platform.system() == 'Linux':
     call_makefile = 'make -f ' + options.mfname
 
 mkfile.write('\nrm_objs:\n')
-mkfile.write(rm_recursive_obj + '\n')
+#mkfile.write(rm_recursive_obj + '\n')
+mkfile.write('\trm $(OBJS)\n\n')
 
 mkfile.write('rm_mods:\n')
-mkfile.write(rm_recursive_mod + '\n')
+#mkfile.write(rm_recursive_mod + '\n')
+mkfile.write('\trm $(MODS)\n\n')
 
 mkfile.write('clean:\n')
 mkfile.write('\t$(MAKE) rm_objs\n')
