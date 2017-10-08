@@ -137,6 +137,12 @@ parser.add_option('--extension',
                   default='.f90',
                   help='specify source files extension')
 
+parser.add_option('--encoding',
+                  dest='encoding',
+                  action='store',
+                  default='utf-8',
+                  help='specify encoding to be used for sourse files')
+
 (options, args) = parser.parse_args()
 
 # ()()()()()()()()()()()()()()()()()() PROCEED ARGUMENTS ()()()()()()()()()()()()()()()()()() #
@@ -202,7 +208,7 @@ if ignore_path_set:
 contains = {}; program = {}; non_interfaced = True; module_location={}
 for file in fileset:  # location of program units
     filecontains = {'modules': [], 'subroutines': [], 'functions': [], 'dependencies': []}
-    for line in open(file, 'r'):  # assume that key statements are written without ;&!
+    for line in open(file, 'r', encoding=options.encoding):  # assume that key statements are written without ;&!
 
         if '!' in line and isNotQuoted(line, line.index('!')):
             line = line[:line.index('!')]  # remove comment
