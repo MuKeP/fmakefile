@@ -4,6 +4,7 @@ import re
 import sys
 import optparse
 import platform
+import subprocess
 
 
 class FortranCodeError(Exception):
@@ -143,12 +144,18 @@ parser.add_option('--encoding',
                   default='utf-8',
                   help='specify encoding to be used for sourse files')
 
+parser.add_option('--debug',
+                  dest='debug',
+                  action='store_true',
+                  default=False,
+                  help='show debug information')
+
 (options, args) = parser.parse_args()
 
 # ()()()()()()()()()()()()()()()()()() PROCEED ARGUMENTS ()()()()()()()()()()()()()()()()()() #
 
 if options.configuration not in ['debug', 'release']:
-	raise ArgumentError('Invalid "--config" value. Should be in ["debug", "release"].')
+    raise ArgumentError('Invalid "--config" value. Should be in ["debug", "release"].')
 
 if options.dependency not in ['object files', 'modules']:
     raise ArgumentError('Invalid "--dependence" value. Should be in ["object files", "modules"].')
@@ -193,6 +200,24 @@ ignore_path_set = []
 if options.ignore:
     ignore_path_set = options.ignore.split(';')
 
+if options.debug:
+    print('Arguments:')
+    print('--config', options.configuration)
+    print('--compiler', options.compiler)
+    print('--pparams', options.compiler_pparams)
+    print('--sparams', options.compiler_sparams)
+    print('--appname', options.appname)
+    print('--make', options.make)
+    print('--ignore-path', options.ignore)
+    print('--obj-extension', options.obj_extension)
+    print('--makefile-name', options.mfname)
+    print('--dependence', options.dependency)
+    print('--extension', options.extension)
+    print('--encoding', options.encoding)
+    print('--debug', options.debug)
+
+# ()()()()()()()()()()()()()()()()()() PREPARE FILES ()()()()()()()()()()()()()()()()()() #
+
 fileset = []
 for (dirpath, dirnames, filenames) in os.walk('.'):  # collect all source files recursively
     fileset.extend([os.path.join(dirpath, file)
@@ -205,7 +230,12 @@ if ignore_path_set:
             if file.startswith(ignored):
                 fileset.remove(file)
 
-contains = {}; program = {}; non_interfaced = True; module_location={}
+if platform.system() == 'Linux':
+    subprocess.call(['chmod', 'a-x'] + fileset)
+
+# ()()()()()()()()()()()()()()()()()() PARSE FILES ()()()()()()()()()()()()()()()()()() #
+
+contains, program, module_location, empty_files, non_interfaced = {}, {}, {}, [], True
 for file in fileset:  # location of program units
     filecontains = {'modules': [], 'subroutines': [], 'functions': [], 'dependencies': []}
     for line in open(file, 'r', encoding=options.encoding):  # assume that key statements are written without ;&!
@@ -256,8 +286,33 @@ for file in fileset:  # location of program units
                 position = words.index('function')
                 filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
                 continue
+    empty_stream = not any([bool(filecontains[key]) for key in filecontains.keys()])
+
+    if empty_stream and program['location'] != file:
+        empty_files.append(file)
 
     contains[file] = dict(filecontains)
+
+if empty_files:
+    if options.debug:
+        print()
+        print('Empty stream(s):')
+        print(empty_files)
+        print()
+    raise FortranCodeError('Empty stream(s) found.')
+
+if options.debug:
+    print('Program', program['name'], 'enter is located in', program['location'])
+    print('*' * 78)
+    for file in fileset:
+        print('File:', file)
+        print('Modules:', contains[file]['modules'])
+        print('Dependencies:', contains[file]['dependencies'])
+        print('Subroutines:', contains[file]['subroutines'])
+        print('Functions:', contains[file]['functions'])
+        print('*' * 78)
+
+# ()()()()()()()()()()()()()()()()()() RESOLVE DEPENDENCIES ()()()()()()()()()()()()()()()()()() #
 
 for file in fileset:
     contains[file]['dependencies'] = list(set(contains[file]['dependencies']))
@@ -265,7 +320,7 @@ for file in fileset:
         if module in contains[file]['dependencies']:  # remove self-dependencies
             contains[file]['dependencies'].remove(module)
 
-obj_order = []; modules_proc = []; files_unproc = fileset[:]
+obj_order, modules_proc, files_unproc = [], [], fileset[:]
 while files_unproc:
     for file in files_unproc:
         if all([(module in modules_proc) if contains[file]['dependencies'] else True
@@ -277,9 +332,11 @@ while files_unproc:
     else:
         raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence.')
 
-#prepare_objs =
+# ()()()()()()()()()()()()()()()()()() MAKEFILE FORMATION ()()()()()()()()()()()()()()()()()() #
+
 obj_string = get_file_list('OBJS',
-                           [obj.replace(options.extension, options.obj_extension) for obj in obj_order])
+                           [obj.replace(options.extension, options.obj_extension)
+                            for obj in obj_order])
 
 mod_string = get_file_list('MODS', [module + '.mod' for module in modules_proc])
 
@@ -326,11 +383,9 @@ elif platform.system() == 'Linux':
 mkfile.write('\n.PHONY: rm_objs rm_mods rm_app clean cleanall remake build set_env\n')
 
 mkfile.write('\nrm_objs:\n')
-#mkfile.write(rm_recursive_obj + '\n')
 mkfile.write('\trm -f $(OBJS)\n\n')
 
 mkfile.write('rm_mods:\n')
-#mkfile.write(rm_recursive_mod + '\n')
 mkfile.write('\trm -f $(MODS)\n\n')
 
 mkfile.write('rm_app:\n')
@@ -364,16 +419,3 @@ mkfile.close()
 
 if options.make:
     os.system(call_makefile)
-
-'''
-print ('Obj files order:',obj_order,end='\n\n')
-print ('Program',program['name'],'enter is located in',program['location'])
-print ('*'*78)
-for file in fileset:
-    print ('File:',file)
-    print ('Modules:',contains[file]['modules'])
-    print ('Dependencies:',contains[file]['dependencies'])
-    print ('Subroutines:',contains[file]['subroutines'])
-    print ('Functions:',contains[file]['functions'])
-    print ('*'*78)
-'''
