@@ -76,7 +76,7 @@ parser.add_option('--config',
                   dest='configuration',
                   action='store',
                   default='release',
-                  help='select required configuration [debug,release]')
+                  help='select required configuration (debug,release)')
 
 parser.add_option('--compiler',
                   dest='compiler',
@@ -155,10 +155,10 @@ parser.add_option('--debug',
 # ()()()()()()()()()()()()()()()()()() PROCEED ARGUMENTS ()()()()()()()()()()()()()()()()()() #
 
 if options.configuration not in ['debug', 'release']:
-    raise ArgumentError('Invalid "--config" value. Should be in ["debug", "release"].')
+    raise ArgumentError('Invalid "--config" value. Should be in ("debug", "release").')
 
 if options.dependency not in ['object files', 'modules']:
-    raise ArgumentError('Invalid "--dependence" value. Should be in ["object files", "modules"].')
+    raise ArgumentError('Invalid "--dependence" value. Should be in ("object files", "modules").')
 
 if platform.system() == 'Windows':
     if options.appname.endswith('.x'):
@@ -180,15 +180,15 @@ if not options.obj_extension:
 if not options.compiler_pparams:
     if options.configuration == 'debug':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O1 /C /traceback /Qdiag-disable:' + ignore_warnings + ' /nologo'
+            options.compiler_pparams = '/O1 /fpp /C /traceback /Qdiag-disable:' + ignore_warnings + ' /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O1 -C -traceback -diag-disable ' + ignore_warnings + ' -nologo'
+            options.compiler_pparams = '-O1 -fpp -C -traceback -diag-disable ' + ignore_warnings
 
     if options.configuration == 'release':
         if platform.system() == 'Windows':
-            options.compiler_pparams = '/O3 /Qdiag-disable:' + ignore_warnings + ' /nologo'
+            options.compiler_pparams = '/O3 /fpp /Qdiag-disable:' + ignore_warnings + ' /nologo'
         elif platform.system() == 'Linux':
-            options.compiler_pparams = '-O3 -diag-disable ' + ignore_warnings + ' -nologo'
+            options.compiler_pparams = '-O3 -fpp -diag-disable ' + ignore_warnings
 
 if not options.compiler_sparams:
     if platform.system() == 'Windows':
@@ -270,6 +270,9 @@ for file in fileset:  # location of program units
         if statement == 'program':
             if isNotQuoted(statement, statement.index('program')):
                 if program:
+                    print('>>', program['name'], 'in', program['location'])
+                    print('>>', other[0], 'in', file)
+                    print()
                     raise FortranCodeError('Found more than one program statement.')
                 program = {'name': other[0], 'location': file}
                 continue
@@ -297,7 +300,9 @@ if empty_files:
     if options.debug:
         print()
         print('Empty stream(s):')
-        print(empty_files)
+        for i, file in enumerate(empty_files):
+            print('%2d) %s' % (i+1, file))
+        print('Rename file(s) (name -> name~) to exclude them from the list.')
         print()
     raise FortranCodeError('Empty stream(s) found.')
 
