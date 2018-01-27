@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import os
 import re
 import sys
@@ -112,7 +112,7 @@ parser.add_option('--ignore-path',
                   dest='ignore',
                   action='store',
                   default=None,
-                  help='ignore path (seperate by ;)')
+                  help='ignore path (separate by ;)')
 
 parser.add_option('--obj-extension',
                   dest='obj_extension',
@@ -131,6 +131,12 @@ parser.add_option('--dependence',
                   action='store',
                   default='object files',
                   help='specify dependence')
+
+parser.add_option('--ignore-dependency',
+                  dest='ignore_deps',
+                  action='store',
+                  default=None,
+                  help='specify dependencies to ignore (separate by ;)')
 
 parser.add_option('--extension',
                   dest='extension',
@@ -200,6 +206,13 @@ ignore_path_set = []
 if options.ignore:
     ignore_path_set = options.ignore.split(';')
 
+ignore_dependency = []
+if options.ignore_deps:
+    ignore_dependency = options.ignore_deps.split(';')
+
+available_modules.extend(ignore_dependency)
+available_modules = list(set(available_modules))
+
 if options.debug:
     print('Arguments:')
     print('--config', options.configuration)
@@ -212,6 +225,7 @@ if options.debug:
     print('--obj-extension', options.obj_extension)
     print('--makefile-name', options.mfname)
     print('--dependence', options.dependency)
+    print('--ignore-dependency', options.ignore_deps)
     print('--extension', options.extension)
     print('--encoding', options.encoding)
     print('--debug', options.debug)
@@ -296,6 +310,9 @@ for file in fileset:  # location of program units
 
     contains[file] = dict(filecontains)
 
+for file in fileset:  # remove duplicates
+    contains[file]['dependencies'] = list(set(contains[file]['dependencies']))
+
 if empty_files:
     if options.debug:
         print()
@@ -320,7 +337,7 @@ if options.debug:
 # ()()()()()()()()()()()()()()()()()() RESOLVE DEPENDENCIES ()()()()()()()()()()()()()()()()()() #
 
 for file in fileset:
-    contains[file]['dependencies'] = list(set(contains[file]['dependencies']))
+    # contains[file]['dependencies'] = list(set(contains[file]['dependencies']))
     for module in contains[file]['modules']:
         if module in contains[file]['dependencies']:  # remove self-dependencies
             contains[file]['dependencies'].remove(module)
@@ -335,7 +352,18 @@ while files_unproc:
             files_unproc.remove(file)
             break
     else:
-        raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence.')
+        print()
+        print('Files with unresolved dependencies:')
+        for file in files_unproc:
+            print('Name', file)
+            print('Dependencies:')
+            k = 0
+            for dep in contains[file]['dependencies']:
+                if dep not in modules_proc:
+                    k += 1
+                    print('  %2d) %s' % (k, dep))
+        print()
+        raise FortranCodeError('Cannot resolve dependencies. Probably cross-dependence or some modules missing.')
 
 # ()()()()()()()()()()()()()()()()()() MAKEFILE FORMATION ()()()()()()()()()()()()()()()()()() #
 
