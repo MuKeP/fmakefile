@@ -28,14 +28,14 @@ elif platform.system() == 'Linux':
     null_device = '/dev/null'
 
 
-def isNotQuoted(line, position):  # assuming that everything is fine with quotes
+def isQuoted(line, position):  # assuming that everything is fine with quotes
     if not any([(quote in line) for quote in quotes_set]):
-        return True
+        return False
 
     quote_status = -1
     for pos, symbol in enumerate(line):
         if pos == position:
-            return False if quote_status != -1 else True
+            return True if quote_status != -1 else False
 
         if symbol in quotes_set:
             current_quote = quotes_set.index(symbol)
@@ -69,6 +69,26 @@ def get_file_list(prefix, object_list, line_width=80):
                 object_list = []
                 break
     return result
+
+
+def isKeyword(line, keyword):
+    try:
+        ln, pos = len(keyword), line.index(keyword)
+    except ValueError:
+        return False  # keyword is not found in the line
+
+    if ln+pos >= len(line):
+        return True  # keyword len is equal to line len
+
+    return not isQuoted(line, pos) and not line[ln+pos].isalpha()
+
+
+def replaceExtension(name, exts, src):
+    for ext in exts:
+        if name.endswith(ext):
+            return name.replace(ext, src)
+    else:
+        return name
 
 
 parser = optparse.OptionParser()
@@ -130,7 +150,7 @@ parser.add_option('--dependence',
                   dest='dependency',
                   action='store',
                   default='object files',
-                  help='specify dependence')
+                  help='specify dependence (.obj or .mod file)')
 
 parser.add_option('--ignore-dependency',
                   dest='ignore_deps',
@@ -141,8 +161,8 @@ parser.add_option('--ignore-dependency',
 parser.add_option('--extension',
                   dest='extension',
                   action='store',
-                  default='.f90',
-                  help='specify source files extension')
+                  default=None,
+                  help='specify source files extension (separate by ;)')
 
 parser.add_option('--encoding',
                   dest='encoding',
@@ -210,6 +230,10 @@ ignore_dependency = []
 if options.ignore_deps:
     ignore_dependency = options.ignore_deps.split(';')
 
+extension_set = ['.f90']
+if options.extension:
+    extension_set = options.extension.split(';')
+
 available_modules.extend(ignore_dependency)
 available_modules = list(set(available_modules))
 
@@ -235,7 +259,7 @@ if options.debug:
 fileset = []
 for (dirpath, dirnames, filenames) in os.walk('.'):  # collect all source files recursively
     fileset.extend([os.path.join(dirpath, file)
-                    for file in filenames if file.endswith(options.extension)])
+                    for file in filenames if any([file.endswith(ext) for ext in extension_set])])
 
 if ignore_path_set:
     ignore_path_set = ['.' + os.path.sep + ignored for ignored in ignore_path_set]
@@ -254,55 +278,89 @@ for file in fileset:  # location of program units
     filecontains = {'modules': [], 'subroutines': [], 'functions': [], 'dependencies': []}
     for line in open(file, 'r', encoding=options.encoding):  # assume that key statements are written without ;&!
 
-        if '!' in line and isNotQuoted(line, line.index('!')):
+        if '!' in line and not isQuoted(line, line.index('!')):
             line = line[:line.index('!')]  # remove comment
 
         uline = line.lower().strip()
         statement, *other = uline.split(' ')
 
-        if statement == 'interface':
-            if isNotQuoted(statement, statement.index('interface')):
-                non_interfaced = False
-                continue
+        # if statement == 'interface':
+        #     if isKeyword(statement, 'interface'):
+        #         non_interfaced = False
+        #         continue
+
+        if isKeyword(statement, 'interface'):
+            non_interfaced = False
+            continue
 
         if uline.startswith('end interface') or uline.startswith('endinterface'):
             non_interfaced = True
             continue
 
-        if statement == 'module' and other[0] != 'procedure':
-            if isNotQuoted(statement, statement.index('module')):
-                module_name = other[0].strip()
-                filecontains['modules'].append(module_name)
-                module_location[module_name] = file
+        # if statement == 'module' and other[0] != 'procedure':
+        #     if isKeyword(statement, 'module'):
+        #         module_name = other[0].strip()
+        #         filecontains['modules'].append(module_name)
+        #         module_location[module_name] = file
+        #         continue
+
+        if isKeyword(statement, 'module') and other[0] != 'procedure':
+            module_name = other[0].strip()
+            filecontains['modules'].append(module_name)
+            module_location[module_name] = file
+            continue
+
+        # if statement == 'subroutine' and non_interfaced:
+        #     if isKeyword(statement, 'subroutine'):
+        #         filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
+        #         continue
+
+        if isKeyword(statement, 'subroutine') and non_interfaced:
+            filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
+            continue
+
+        # if statement == 'program':
+        #     if isKeyword(statement, 'program'):
+        #         if program:
+        #             print('>>', program['name'], 'in', program['location'])
+        #             print('>>', other[0], 'in', file)
+        #             print()
+        #             raise FortranCodeError('Found more than one program statement.')
+        #         program = {'name': other[0], 'location': file}
+        #         continue
+
+        if isKeyword(statement, 'program'):
+            if program:
+                print('>>', program['name'], 'in', program['location'])
+                print('>>', other[0], 'in', file)
+                print()
+                raise FortranCodeError('Found more than one program statement.')
+            program = {'name': other[0], 'location': file}
+            continue
+
+        # if statement == 'use':
+        #     if isKeyword(statement, 'use'):
+        #         if other[0][:get_name_len(other[0])] not in available_modules:
+        #             filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
+        #             continue
+
+        if isKeyword(statement, 'use'):
+            if other[0][:get_name_len(other[0])] not in available_modules:
+                filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
                 continue
 
-        if statement == 'subroutine' and non_interfaced:
-            if isNotQuoted(statement, statement.index('subroutine')):
-                filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
-                continue
+        # if 'function' in uline and not uline.startswith('end') and non_interfaced:
+        #     if isKeyword(uline, 'function'):
+        #         words = uline.split(' ')
+        #         position = words.index('function')
+        #         filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
+        #         continue
 
-        if statement == 'program':
-            if isNotQuoted(statement, statement.index('program')):
-                if program:
-                    print('>>', program['name'], 'in', program['location'])
-                    print('>>', other[0], 'in', file)
-                    print()
-                    raise FortranCodeError('Found more than one program statement.')
-                program = {'name': other[0], 'location': file}
-                continue
-
-        if statement == 'use':
-            if isNotQuoted(statement, statement.index('use')):
-                if other[0][:get_name_len(other[0])] not in available_modules:
-                    filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
-                    continue
-
-        if 'function' in uline and not uline.startswith('end') and non_interfaced:
-            if isNotQuoted(uline, uline.index('function')):
-                words = uline.split(' ')
-                position = words.index('function')
-                filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
-                continue
+        if 'function' in uline and isKeyword(uline, 'function') and not uline.startswith('end') and non_interfaced:
+            words = uline.split(' ')
+            position = words.index('function')
+            filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
+            continue
     empty_stream = not any([bool(filecontains[key]) for key in filecontains.keys()])
 
     if empty_stream and program['location'] != file:
@@ -368,7 +426,7 @@ while files_unproc:
 # ()()()()()()()()()()()()()()()()()() MAKEFILE FORMATION ()()()()()()()()()()()()()()()()()() #
 
 obj_string = get_file_list('OBJS',
-                           [obj.replace(options.extension, options.obj_extension)
+                           [replaceExtension(obj, extension_set, options.obj_extension)
                             for obj in obj_order])
 
 mod_string = get_file_list('MODS', [module + '.mod' for module in modules_proc])
@@ -392,15 +450,15 @@ mkfile.write('\t$(COM) $(OBJS) $(SFLAGS) -o $(NAME)\n\n')
 for obj in obj_order:
 
     if options.dependency == 'object files':
-        deps = [module_location[dep].replace(options.extension, options.obj_extension)
+        deps = [replaceExtension(module_location[dep], extension_set, options.obj_extension)
                 for dep in contains[obj]['dependencies']]
     else:
         deps = [dep + '.mod' for dep in contains[obj]['dependencies']]
 
     deps.append(obj)
-    mkfile.write(obj.replace(options.extension, options.obj_extension) + ': ' + ' '.join(deps) + '\n')
+    mkfile.write(replaceExtension(obj, extension_set, options.obj_extension) + ': ' + ' '.join(deps) + '\n')
     mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) {} -o {}\n'.format(
-                 obj, obj.replace(options.extension, options.obj_extension)))
+                 obj, replaceExtension(obj, extension_set, options.obj_extension)))
 
 rm_recursive_obj = ('\tfind | grep -E "*\\' +
                     options.obj_extension + '" | xargs rm 2>' + null_device + '\n')
