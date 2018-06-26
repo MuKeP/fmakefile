@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import os
 import re
 import sys
@@ -18,8 +19,8 @@ class ArgumentError(Exception):
 quotes_set = "'" + '"'
 name_pattern = 'a-zA-Z0-9_'
 available_modules = ['ifport', 'ifposix', 'ifcore', 'ifqwin', 'iflogm', 'ifcom', 'ifauto',
-                     'dfport', 'dflib', 'dfwin', 'dflogm', 'dfauto']
-ignore_warnings = '7000,7954,8290,8291'
+                     'dfport', 'dflib', 'dfwin', 'dflogm', 'dfauto', 'omp_lib']
+ignore_warnings = '7000,7734,7954,8290,8291'
 
 
 if platform.system() == 'Windows':
@@ -220,7 +221,7 @@ if not options.compiler_sparams:
     if platform.system() == 'Windows':
         options.compiler_sparams = '/Qopenmp'
     elif platform.system() == 'Linux':
-        options.compiler_sparams = '-openmp'
+        options.compiler_sparams = '-qopenmp'
 
 ignore_path_set = []
 if options.ignore:
@@ -284,11 +285,6 @@ for file in fileset:  # location of program units
         uline = line.lower().strip()
         statement, *other = uline.split(' ')
 
-        # if statement == 'interface':
-        #     if isKeyword(statement, 'interface'):
-        #         non_interfaced = False
-        #         continue
-
         if isKeyword(statement, 'interface'):
             non_interfaced = False
             continue
@@ -297,37 +293,15 @@ for file in fileset:  # location of program units
             non_interfaced = True
             continue
 
-        # if statement == 'module' and other[0] != 'procedure':
-        #     if isKeyword(statement, 'module'):
-        #         module_name = other[0].strip()
-        #         filecontains['modules'].append(module_name)
-        #         module_location[module_name] = file
-        #         continue
-
         if isKeyword(statement, 'module') and other[0] != 'procedure':
             module_name = other[0].strip()
             filecontains['modules'].append(module_name)
             module_location[module_name] = file
             continue
 
-        # if statement == 'subroutine' and non_interfaced:
-        #     if isKeyword(statement, 'subroutine'):
-        #         filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
-        #         continue
-
         if isKeyword(statement, 'subroutine') and non_interfaced:
             filecontains['subroutines'].append(other[0][:get_name_len(other[0])])
             continue
-
-        # if statement == 'program':
-        #     if isKeyword(statement, 'program'):
-        #         if program:
-        #             print('>>', program['name'], 'in', program['location'])
-        #             print('>>', other[0], 'in', file)
-        #             print()
-        #             raise FortranCodeError('Found more than one program statement.')
-        #         program = {'name': other[0], 'location': file}
-        #         continue
 
         if isKeyword(statement, 'program'):
             if program:
@@ -338,23 +312,10 @@ for file in fileset:  # location of program units
             program = {'name': other[0], 'location': file}
             continue
 
-        # if statement == 'use':
-        #     if isKeyword(statement, 'use'):
-        #         if other[0][:get_name_len(other[0])] not in available_modules:
-        #             filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
-        #             continue
-
         if isKeyword(statement, 'use'):
             if other[0][:get_name_len(other[0])] not in available_modules:
                 filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
                 continue
-
-        # if 'function' in uline and not uline.startswith('end') and non_interfaced:
-        #     if isKeyword(uline, 'function'):
-        #         words = uline.split(' ')
-        #         position = words.index('function')
-        #         filecontains['functions'].append(words[position+1][:get_name_len(words[position+1])])
-        #         continue
 
         if 'function' in uline and isKeyword(uline, 'function') and not uline.startswith('end') and non_interfaced:
             words = uline.split(' ')
@@ -395,7 +356,6 @@ if options.debug:
 # ()()()()()()()()()()()()()()()()()() RESOLVE DEPENDENCIES ()()()()()()()()()()()()()()()()()() #
 
 for file in fileset:
-    # contains[file]['dependencies'] = list(set(contains[file]['dependencies']))
     for module in contains[file]['modules']:
         if module in contains[file]['dependencies']:  # remove self-dependencies
             contains[file]['dependencies'].remove(module)
@@ -471,7 +431,7 @@ if platform.system() == 'Windows':
 elif platform.system() == 'Linux':
     call_makefile = 'make -f ' + options.mfname
 
-mkfile.write('\n.PHONY: rm_objs rm_mods rm_app clean cleanall remake build set_env\n')
+mkfile.write('\n.PHONY: rm_objs rm_mods rm_app clean cleanall remake build\n')
 
 mkfile.write('\nrm_objs:\n')
 mkfile.write('\trm -f $(OBJS)\n\n')
@@ -498,13 +458,6 @@ mkfile.write('build:\n')
 mkfile.write('\t$(MAKE) cleanall\n')
 mkfile.write('\t$(MAKE)\n')
 mkfile.write('\t$(MAKE) clean\n\n')
-
-'''
-mkfile.write('set_env:\n')
-mkfile.write('\t' +
-    r'C:\"Program Files (x86)"\Intel\ComposerXE-2011\bin\compilervars_arch.bat intel64' +
-    '\n\n')
-'''
 
 mkfile.close()
 
