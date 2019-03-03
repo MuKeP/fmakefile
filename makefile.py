@@ -6,6 +6,10 @@ import sys
 import optparse
 import platform
 import subprocess
+import datetime
+
+
+now = datetime.datetime.now()
 
 
 class FortranCodeError(Exception):
@@ -72,7 +76,7 @@ def get_file_list(prefix, object_list, line_width=80):
     return result
 
 
-def isKeyword(line, keyword):
+def isKeyword(line, keyword, prev=False):
     try:
         ln, pos = len(keyword), line.index(keyword)
     except ValueError:
@@ -80,6 +84,11 @@ def isKeyword(line, keyword):
 
     if ln+pos >= len(line):
         return True  # keyword len is equal to line len
+
+    if prev:
+        if pos != 0:
+            if line[pos-1].isalpha():
+                return False  # previous symbol is letter
 
     return not isQuoted(line, pos) and not line[ln+pos].isalpha()
 
@@ -312,7 +321,7 @@ for file in fileset:  # location of program units
             program = {'name': other[0], 'location': file}
             continue
 
-        if isKeyword(statement, 'use'):
+        if isKeyword(statement, 'use', True):
             if other[0][:get_name_len(other[0])] not in available_modules:
                 filecontains['dependencies'].append(other[0][:get_name_len(other[0])])
                 continue
@@ -393,9 +402,12 @@ mod_string = get_file_list('MODS', [module + '.mod' for module in modules_proc])
 
 mkfile = open(options.mfname, 'w')
 
+mkfile.write('\n# %s #\n' % ('()'*25))
+mkfile.write('# %s\n' % (now.strftime("%Y-%m-%d %H:%M")))
 mkfile.write('# generated automatically with command line:\n')
 mkfile.write('# {} {} \n'.format(os.path.split(sys.argv[0])[1], ' '.join(sys.argv[1:])))
-mkfile.write('# paltform: {}\n\n'.format(platform.system()))
+mkfile.write('# paltform: {}\n'.format(platform.system()))
+mkfile.write('# %s #\n\n' % ('()'*25))
 
 mkfile.write('NAME={}\n'.format(options.appname))
 mkfile.write('COM={}\n'.format(options.compiler))
