@@ -285,7 +285,8 @@ if platform.system() == 'Linux':
 
 contains, program, module_location, empty_files, non_interfaced = {}, {}, {}, [], True
 for file in fileset:  # location of program units
-    filecontains = {'modules': [], 'subroutines': [], 'functions': [], 'dependencies': []}
+    filecontains = {'modules': [], 'subroutines': [], 'functions': [],
+                    'dependencies': [], 'program': False}
     for line in open(file, 'r', encoding=options.encoding):  # assume that key statements are written without ;&!
 
         if '!' in line and not isQuoted(line, line.index('!')):
@@ -319,6 +320,7 @@ for file in fileset:  # location of program units
                 print()
                 raise FortranCodeError('Found more than one program statement.')
             program = {'name': other[0], 'location': file}
+            filecontains['program'] = True
             continue
 
         if isKeyword(statement, 'use', True):
@@ -333,7 +335,30 @@ for file in fileset:  # location of program units
             continue
     empty_stream = not any([bool(filecontains[key]) for key in filecontains.keys()])
 
-    if empty_stream and program['location'] != file:
+    if options.debug:
+        print('*** File [%s]' % file, end=' ')
+        if not empty_stream:
+            print('info:')
+            if filecontains['modules']:
+                print('>>> modules     : %s' % filecontains['modules'])
+
+            if filecontains['subroutines']:
+                print('>>> subroutines : %s' % filecontains['subroutines'])
+
+            if filecontains['functions']:
+                print('>>> functions   : %s' % filecontains['functions'])
+
+            if filecontains['dependencies']:
+                print('>>> dependencies: %s' % list(set(filecontains['dependencies'])))
+        else:
+            print('is empty.')
+
+        if filecontains['program']:
+            print('!!! contains program entry.')
+        print()
+
+    # ++++++++++> needs to be tested <++++++++++
+    if empty_stream and not filecontains['program']:
         empty_files.append(file)
 
     contains[file] = dict(filecontains)
