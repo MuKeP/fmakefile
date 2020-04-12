@@ -1,3 +1,3 @@
 #!/bin/bash
-sudo rm /usr/bin/fmakefile
-sudo ln -s $PWD/makefile.py /usr/bin/fmakefile
+sudo rm /usr/bin/fmakefile 2>/dev/null
+sudo ln -s $PWD/run.py /usr/bin/fmakefile
