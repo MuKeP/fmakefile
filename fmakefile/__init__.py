@@ -4,7 +4,7 @@ import logging
 
 from .makefile import ProjectParser
 
-__version__ = '0.2a'
+__version__ = '0.2.0a'
 __author__ = 'Anton Zakharov'
 
 

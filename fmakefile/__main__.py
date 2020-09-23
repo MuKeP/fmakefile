@@ -5,14 +5,21 @@ import sys
 
 # tricky way to beat the case when package is not installed and script is called via symlink
 # we need to add package path to the os.path variable first, then module is available for import
-path = os.path.dirname(os.readlink(os.path.abspath(__file__)))
+# first we need to check if we follow symlink
+
+current = os.path.abspath(__file__)
+if os.path.islink(current):
+    path = os.path.dirname(os.readlink(current))
+else:
+    path = os.path.dirname(current)
+
 if path not in sys.path:
     sys.path.insert(0, path)
 
 import optparse
 import platform
 
-from fmakefile.makefile import ProjectParser
+from .makefile import ProjectParser
 
 # ()()()()()()()()()()()()()()()()()() DEFINE ARGUMENTS ()()()()()()()()()()()()()()()()()() #
 

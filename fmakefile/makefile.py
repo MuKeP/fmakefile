@@ -65,6 +65,28 @@ class FortranCodeError(Exception):
 
 ####################################################################################################
 
+def remove_extenstions(string, suffix):
+    '''
+    Remove substring(s) from the end of the string.
+
+    Arguments:
+        string - target string [string]
+        suffix - suffix(es) to be removed [string or list/tuple/set of strings]
+    '''
+    if isinstance(suffix, (tuple, set, list)):
+        for sub in suffix:
+            if string.endswith(sub):
+                string = string[:-len(sub)]
+    elif isinstance(suffix, str):
+        if string.endswith(suffix):
+            string = string[:-len(suffix)]
+    else:
+        raise TypeError('Expected str or list of str, while got %s' % type(suffix))
+
+    return string
+
+####################################################################################################
+
 def is_quoted(line, position):
     '''
     Check whether selected <position> is quoted.
@@ -98,6 +120,22 @@ def is_quoted(line, position):
                 status = None
 
     raise FortranCodeError('Probably quotes are not balanced: (%s)' % line)
+
+####################################################################################################
+
+def dequote(line):
+    while True:
+        if line.startswith('"') or line.startswith("'"):
+            line = line[1:]
+        else:
+            break
+
+    while True:
+        if line.endswith('"') or line.endswith("'"):
+            line = line[:-1]
+        else:
+            break
+    return line
 
 ####################################################################################################
 
@@ -216,7 +254,13 @@ def has_extension(file, extensions):
 ####################################################################################################
 
 def draw_directory_tree(fileset, indent_size=3):
+    '''
+    Output directory tree.
 
+    Arguments:
+        fileset     - set of files (with pathes)
+        indent_size - size of indention (spaces)
+    '''
     indent = ' '*indent_size
 
     def update_tree(root, branch):
@@ -246,8 +290,6 @@ def expand_path(path):
     '''
     Split path into parts.
     '''
-    # path, file = os.path.split(path)
-
     parts = []
     while True:
         path, folder = os.path.split(path)
@@ -290,6 +332,26 @@ def collect_files(directory, ignore_paths, extensions):
                         fileset.append(path)
 
         return fileset
+
+####################################################################################################
+
+def purify_path(path):
+    '''
+    Remove .. and . from the path.
+    '''
+    tree = expand_path(path)
+    purified = []
+    for k, part in enumerate(tree):
+        if k == 0 and part == '.':
+            purified.append('.')
+            continue
+        if part == '..':
+            purified.pop()
+            continue
+        if part == '.':
+            continue
+        purified.append(part)
+    return os.path.join(*purified)
 
 ####################################################################################################
 
@@ -346,10 +408,13 @@ class ProjectParser:
 
             setattr(self, key, kwargs.get(key, ProjectParser.DEFAULTS[key]))
 
+        self.includes = []
+
+        appname = remove_extenstions(self.appname, ('.x', '.exe'))
         if platform_ == 'Linux':
-            self.appname = self.appname.strip('.x').strip('.exe') + '.x'
+            self.appname = appname + '.x'
         elif platform_ == 'Windows':
-            self.appname = self.appname.strip('.x').strip('.exe') + '.exe'
+            self.appname = appname + '.exe'
 
     def _parse_source_file(self, file):
 
@@ -388,11 +453,14 @@ class ProjectParser:
 
             if is_keyword(statement, 'include'):
 
-                include_source = other[0][1:-1]
+                # initial case (not lowered) is required due to UNIX case sensitivity
+                include_source = dequote(line.strip().split(' ', 1)[1])
                 if include_source in self.ignore_includes:
                     continue
 
-                include_file = os.path.join(os.path.dirname(file), include_source)
+                include_file = purify_path(os.path.join(os.path.dirname(file), include_source))
+
+                self.includes.append(include_file)
 
                 filecontains['includes'].append(include_file)
                 result = self._parse_source_file(include_file)
@@ -545,8 +613,9 @@ class ProjectParser:
         self._parse_project()
 
         if self.verbose:
-            draw_directory_tree(self.fileset)
+            draw_directory_tree(self.fileset+self.includes)
             print()
+            print('appname:             ', self.appname)
             print('compiler:            ', self.compiler)
             print('primary parameters:  ', self.pcompiler_params)
             print('secondary parameters:', self.scompiler_params)
