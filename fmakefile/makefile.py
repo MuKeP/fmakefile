@@ -124,6 +124,9 @@ def is_quoted(line, position):
 ####################################################################################################
 
 def dequote(line):
+    '''
+    Gentle quotes stripping.
+    '''
     while True:
         if line.startswith('"') or line.startswith("'"):
             line = line[1:]
@@ -355,6 +358,38 @@ def purify_path(path):
 
 ####################################################################################################
 
+def read_with_encoding_guess(file, debug=False, **kwargs):
+    '''
+    Try to guess encoding of the file. Function is called to solve the problem
+    with cyrillic comments.
+
+    Arguments:
+        file  - filename
+        debug - show debug information
+        kwargs - keyword arguments of the open function. If encoding is passed, it will be ignored.
+    '''
+    kwargs.pop('encoding', None)
+
+    guesses = ['utf-8', 'windows-1251', 'cp866', 'ascii', 'windows-1252']
+    if debug:
+        print('Reading file %s.' % file)
+
+    notutf = False
+    for encoding in guesses:
+        try:
+            result = open(file, encoding=encoding, **kwargs).readlines()
+            if notutf and debug:
+                print('Success in reading with %s encoding.' % encoding)
+            return result
+
+        except UnicodeDecodeError:
+            notutf = True
+            pass
+
+    raise UnicodeDecodeError('Unable to guess encoding. None of %s.' % guesses)
+
+####################################################################################################
+
 class ProjectParser:
     '''
     Class for Fortran project analysis.
@@ -424,7 +459,7 @@ class ProjectParser:
         non_interfaced = True
 
         # assume that key statements are written without ;&!
-        for line in open(file, 'r', encoding=self.encoding):
+        for line in read_with_encoding_guess(file, self.debug):
 
             # cut comment if exist
             if '!' in line and not is_quoted(line, line.index('!')):
