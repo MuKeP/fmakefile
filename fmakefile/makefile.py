@@ -7,6 +7,8 @@ import subprocess
 import logging
 import datetime
 
+import treelib
+
 ####################################################################################################
 
 logger = logging.getLogger(__name__)
@@ -256,36 +258,24 @@ def has_extension(file, extensions):
 
 ####################################################################################################
 
-def draw_directory_tree(fileset, indent_size=3):
+def draw_directory_tree(fileset):
     '''
     Output directory tree.
 
     Arguments:
         fileset     - set of files (with pathes)
-        indent_size - size of indention (spaces)
     '''
-    indent = ' '*indent_size
+    known, tree = {'Project': 0}, treelib.Tree()
 
-    def update_tree(root, branch):
-        current = root
-        for node in branch:
-            if node not in current:
-                current[node] = {}
-            current = current[node]
-
-    def unfold(tree, level=0):
-        if tree:
-            for node in tree:
-                prefix = '\n' if tree[node] else ''
-                print('%s%s%s %s' % (prefix, indent*level, '--', node))
-                unfold(tree[node], level+1)
-
-    tree = {}
+    tree.create_node('Project', 0)
     for file in fileset:
-        update_tree(tree, expand_path(file)[1:])
+        branch = ['Project'] + expand_path(file)[1:]
 
-    print('Project:')
-    unfold(tree, 1)
+        for k, node in enumerate(branch[1:]):
+            if node not in known:
+                known[node] = len(known)+1
+                tree.create_node(node, len(known), parent=known[branch[k]])
+    tree.show()
 
 ####################################################################################################
 
