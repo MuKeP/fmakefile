@@ -358,28 +358,40 @@ def purify_path(path):
 
 ####################################################################################################
 
-def read_with_encoding_guess(file, debug=False, **kwargs):
+def purify_include(path):
+    '''
+    Extract name from 'include' statement.
+    '''
+    return dequote(path.strip().split(' ', 1)[1].strip())
+
+####################################################################################################
+
+def read_with_encoding_guess(file, *, debug=False, encoding=None, **kwargs):
     '''
     Try to guess encoding of the file. Function is called to solve the problem
     with cyrillic comments.
 
     Arguments:
-        file  - filename
-        debug - show debug information
-        kwargs - keyword arguments of the open function. If encoding is passed, it will be ignored.
+        file     - filename
+        debug    - show debug information
+        encoding - force to use encoding, if is given will skip guess procedure
+        kwargs   - keyword arguments of the open function
     '''
-    kwargs.pop('encoding', None)
-
     guesses = ['utf-8', 'windows-1251', 'cp866', 'ascii', 'windows-1252']
+
+    # in case of incorrect encoding will raise UnicodeDecodeError
+    if encoding and encoding not in guesses:
+        return open(file, encoding=encoding, **kwargs).readlines()
+
     if debug:
         print('Reading file %s.' % file)
 
     notutf = False
-    for encoding in guesses:
+    for encoding_ in guesses:
         try:
-            result = open(file, encoding=encoding, **kwargs).readlines()
+            result = open(file, encoding=encoding_, **kwargs).readlines()
             if notutf and debug:
-                print('Success in reading with %s encoding.' % encoding)
+                print('Success in reading with %s encoding.' % encoding_)
             return result
 
         except UnicodeDecodeError:
@@ -459,7 +471,7 @@ class ProjectParser:
         non_interfaced = True
 
         # assume that key statements are written without ;&!
-        for line in read_with_encoding_guess(file, self.debug):
+        for line in read_with_encoding_guess(file, debug=self.debug, encoding=self.encoding):
 
             # cut comment if exist
             if '!' in line and not is_quoted(line, line.index('!')):
@@ -489,7 +501,7 @@ class ProjectParser:
             if is_keyword(statement, 'include'):
 
                 # initial case (not lowered) is required due to UNIX case sensitivity
-                include_source = dequote(line.strip().split(' ', 1)[1])
+                include_source = purify_include(line)
                 if include_source in self.ignore_includes:
                     continue
 
