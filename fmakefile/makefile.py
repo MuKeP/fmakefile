@@ -60,7 +60,7 @@ PRESETS = {
 
 ####################################################################################################
 
-class FortranCodeError(Exception):
+class FortranSyntaxError(Exception):
     '''
     Raised when Fortran syntax is violated.
     '''
@@ -84,7 +84,7 @@ def remove_extenstions(string, suffix):
         if string.endswith(suffix):
             string = string[:-len(suffix)]
     else:
-        raise TypeError('Expected str or list of str, while got %s' % type(suffix))
+        raise TypeError(f'Expected str or list of str, while got {type(suffix)}')
 
     return string
 
@@ -122,7 +122,7 @@ def is_quoted(line, position):
             elif status == current_quote:
                 status = None
 
-    raise FortranCodeError('Probably quotes are not balanced: (%s)' % line)
+    raise FortranSyntaxError(f'Probably quotes are not balanced: ({line})')
 
 ####################################################################################################
 
@@ -204,7 +204,7 @@ def replace_extension(filename, extensions, object_extension):
         if filename.endswith(e):
             return filename.replace(e, object_extension)
     else:
-        return '%s.%s' % (filename, object_extension)
+        return f'{filename}.{object_extension}'
 
 ####################################################################################################
 
@@ -345,21 +345,21 @@ def read_with_encoding_guess(file, *, debug=False, encoding=None, **kwargs):
         return open(file, encoding=encoding, **kwargs).readlines()
 
     if debug:
-        print('Reading file %s.' % file)
+        print(f'Reading file {file}.')
 
     notutf = False
     for encoding_ in guesses:
         try:
             result = open(file, encoding=encoding_, **kwargs).readlines()
             if notutf and debug:
-                print('Success in reading with %s encoding.' % encoding_)
+                print(f'Success in reading with {encoding_} encoding.')
             return result
 
         except UnicodeDecodeError:
             notutf = True
             pass
 
-    raise UnicodeDecodeError('Unable to guess encoding. None of %s.' % guesses)
+    raise UnicodeDecodeError(f'Unable to guess encoding. None of {guesses}.')
 
 ####################################################################################################
 
@@ -406,7 +406,7 @@ class ProjectParser:
         '''
         check_arguments = set(kwargs) - set(ProjectParser.DEFAULTS)
         if check_arguments:
-            raise KeyError('Unexpected argument(s): %s' % list(check_arguments))
+            raise KeyError(f'Unexpected argument(s): {list(check_arguments)}')
 
         for key in ProjectParser.DEFAULTS:
             if key in ('ignore_modules', 'ignore_includes'):
@@ -424,7 +424,7 @@ class ProjectParser:
         elif platform_ == 'Windows':
             self.appname = appname + '.exe'
 
-    def _parse_source_file(self, file):
+    def parse_source_file(self, file):
 
         filecontains = {'modules': [], 'subroutines': [], 'functions': [],
                         'dependencies': [], 'includes': [], 'entry_point': False}
@@ -471,7 +471,7 @@ class ProjectParser:
                 self.includes.append(include_file)
 
                 filecontains['includes'].append(include_file)
-                result = self._parse_source_file(include_file)
+                result = self.parse_source_file(include_file)
 
                 for key in result:
                     if key != 'entry_point':
@@ -492,7 +492,7 @@ class ProjectParser:
                     print('>>', self.entry_point['name'], 'in', self.entry_point['location'])
                     print('>>', other[0], 'in', file)
                     print()
-                    raise FortranCodeError('Found more than one entry point.')
+                    raise FortranSyntaxError('Found more than one entry point.')
 
                 self.entry_point = {'name': other[0], 'location': file}
                 filecontains['entry_point'] = True
@@ -517,7 +517,7 @@ class ProjectParser:
 
         return filecontains
 
-    def _parse_project(self):
+    def parse_project(self):
         self.entry_point = None
         self.empty_files = []
 
@@ -527,7 +527,7 @@ class ProjectParser:
         self.structure, self.modules, self.functions, self.subroutines = {}, {}, {}, {}
         for file in self.fileset:
 
-            contains = self._parse_source_file(file)
+            contains = self.parse_source_file(file)
 
             is_empty = not any([bool(item) for item in contains.items()])
             if is_empty:
@@ -563,9 +563,9 @@ class ProjectParser:
                     print('%2d) %s' % (i+1, file))
                 print('Rename file(s) (name -> name~) to exclude them from the list.')
                 print()
-            raise FortranCodeError('Empty stream(s) found.')
+            raise FortranSyntaxError('Empty stream(s) found.')
 
-    def _resolve_dependencies(self):
+    def resolve_dependencies(self):
 
         # remove self-dependencies
         for file in self.fileset:
@@ -599,15 +599,14 @@ class ProjectParser:
                             print('  %2d) %s' % (k, dep))
                 print()
                 msg = 'Cannot resolve dependencies. Probably cross-dependence or missing modules.'
-                raise FortranCodeError(msg)
+                raise FortranSyntaxError(msg)
 
         return objects, modules
 
 ####################################################################################################
 
     def analize_project(self, directory):
-        # TODO
-        pass
+        raise NotImplementedError
 
 ####################################################################################################
 
@@ -618,7 +617,7 @@ class ProjectParser:
         self.generated = datetime.datetime.now()
 
         self.fileset = collect_files(directory, self.ignore_paths, self.extensions)
-        self._parse_project()
+        self.parse_project()
 
         if self.verbose:
             draw_directory_tree(self.fileset+self.includes)
@@ -633,7 +632,7 @@ class ProjectParser:
             if platform_ == 'Linux':
                 subprocess.call(['chmod', 'a-x'] + self.fileset)
 
-        objects, modules = self._resolve_dependencies()
+        objects, modules = self.resolve_dependencies()
 
         objs = [replace_extension(obj, self.extensions, self.object_extension) for obj in objects]
         mods = [module + '.mod' for module in modules]
@@ -643,17 +642,17 @@ class ProjectParser:
 
         mkfile = open(self.makefile_name, 'w')
 
-        mkfile.write('\n# %s #\n' % ('()'*25))
-        mkfile.write('# %s\n' % (self.generated.strftime("%Y-%m-%d %H:%M")))
-        mkfile.write('# generated automatically with command line:\n')
-        mkfile.write('# {} {} \n'.format(Path(sys.argv[0]).name, ' '.join(sys.argv[1:])))
-        mkfile.write('# paltform: {}\n'.format(platform_))
-        mkfile.write('# %s #\n\n' % ('()'*25))
+        mkfile.write(f'\n# {"()"*25} #\n')
+        mkfile.write(f'# {self.generated.strftime("%Y-%m-%d %H:%M")}\n')
+        mkfile.write(f'# generated automatically with command line:\n')
+        mkfile.write(f'# {Path(sys.argv[0]).name} {" ".join(sys.argv[1:])}\n')
+        mkfile.write(f'# paltform: {platform_}\n')
+        mkfile.write(f'# {"()"*25} #\n\n')
 
-        mkfile.write('NAME={}\n'.format(self.appname))
-        mkfile.write('COM={}\n'.format(self.compiler))
-        mkfile.write('PFLAGS={}\n'.format(self.pcompiler_params))
-        mkfile.write('SFLAGS={}\n\n'.format(self.scompiler_params))
+        mkfile.write(f'NAME={self.appname}\n')
+        mkfile.write(f'COM={self.compiler}\n')
+        mkfile.write(f'PFLAGS={self.pcompiler_params}\n')
+        mkfile.write(f'SFLAGS={self.scompiler_params}\n\n')
 
         mkfile.write(obj_string + '\n\n')
         mkfile.write(mod_string + '\n\n')
@@ -671,15 +670,19 @@ class ProjectParser:
             deps += self.structure[obj]['includes']
 
             deps.append(obj)
+
+            # dependance string
             dstring = ' '.join(map(str, deps))
+
+            # object string
             ostring = replace_extension(obj, self.extensions, self.object_extension)
 
-            mkfile.write('%s: %s\n' % (ostring, dstring))
-            mkfile.write('\t$(COM) -c $(PFLAGS) $(SFLAGS) {} -o {}\n'.format(
-                         obj, replace_extension(obj, self.extensions, self.object_extension)))
+            mkfile.write(f'{ostring}: {dstring}\n')
+            mkfile.write(f'\t$(COM) -c $(PFLAGS) $(SFLAGS) {obj} -o {ostring}\n')
 
         mkfile.write('\n.PHONY: rm_objs rm_mods rm_app clean cleanall remake build\n')
 
+        # recipes
         mkfile.write('\nrm_objs:\n')
         mkfile.write('\trm -f $(OBJS)\n\n')
 
