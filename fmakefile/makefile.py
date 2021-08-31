@@ -6,6 +6,7 @@ import platform
 import subprocess
 import logging
 import datetime
+from pathlib import Path
 
 import treelib
 
@@ -269,7 +270,7 @@ def draw_directory_tree(fileset):
 
     tree.create_node('Project', 0)
     for file in fileset:
-        branch = ['Project'] + expand_path(file)[1:]
+        branch = ('Project',) + expand_path(file)
 
         for k, node in enumerate(branch[1:]):
             if node not in known:
@@ -283,17 +284,7 @@ def expand_path(path):
     '''
     Split path into parts.
     '''
-    parts = []
-    while True:
-        path, folder = os.path.split(path)
-
-        if folder:
-            parts.insert(0, folder)
-        else:
-            if path:
-                parts.insert(0, path)
-            break
-    return parts
+    return Path(path).parts
 
 ####################################################################################################
 
@@ -308,7 +299,7 @@ def collect_files(directory, ignore_paths, extensions):
         '''
 
         # add project prefix for ignored directories
-        ignored_paths = [os.path.join(directory, path) for path in ignore_paths]
+        ignored_paths = [str(Path(directory) / path) for path in ignore_paths]
 
         fileset = []
         for (dirpath, _, files) in os.walk(directory):
@@ -316,7 +307,7 @@ def collect_files(directory, ignore_paths, extensions):
 
                 # it fits one of extensions
                 if has_extension(file, extensions):
-                    path = os.path.join(dirpath, file)
+                    path = str(Path(dirpath) / file)
 
                     for ignored in ignored_paths:
                         if path.startswith(ignored):
@@ -325,26 +316,6 @@ def collect_files(directory, ignore_paths, extensions):
                         fileset.append(path)
 
         return fileset
-
-####################################################################################################
-
-def purify_path(path):
-    '''
-    Remove .. and . from the path.
-    '''
-    tree = expand_path(path)
-    purified = []
-    for k, part in enumerate(tree):
-        if k == 0 and part == '.':
-            purified.append('.')
-            continue
-        if part == '..':
-            purified.pop()
-            continue
-        if part == '.':
-            continue
-        purified.append(part)
-    return os.path.join(*purified)
 
 ####################################################################################################
 
@@ -495,7 +466,7 @@ class ProjectParser:
                 if include_source in self.ignore_includes:
                     continue
 
-                include_file = purify_path(os.path.join(os.path.dirname(file), include_source))
+                include_file = Path(file).parent / include_source
 
                 self.includes.append(include_file)
 
@@ -656,7 +627,7 @@ class ProjectParser:
             print('compiler:            ', self.compiler)
             print('primary parameters:  ', self.pcompiler_params)
             print('secondary parameters:', self.scompiler_params)
-            print('available recipes:   ', 'rm_objs rm_mods rm_app clean cleanall remake build')
+            print('available recipes:   ', 'clean cleanall remake build rm_objs rm_mods rm_app')
 
         if self.drop_execute_flag:
             if platform_ == 'Linux':
@@ -675,7 +646,7 @@ class ProjectParser:
         mkfile.write('\n# %s #\n' % ('()'*25))
         mkfile.write('# %s\n' % (self.generated.strftime("%Y-%m-%d %H:%M")))
         mkfile.write('# generated automatically with command line:\n')
-        mkfile.write('# {} {} \n'.format(os.path.split(sys.argv[0])[1], ' '.join(sys.argv[1:])))
+        mkfile.write('# {} {} \n'.format(Path(sys.argv[0]).name, ' '.join(sys.argv[1:])))
         mkfile.write('# paltform: {}\n'.format(platform_))
         mkfile.write('# %s #\n\n' % ('()'*25))
 
@@ -700,7 +671,7 @@ class ProjectParser:
             deps += self.structure[obj]['includes']
 
             deps.append(obj)
-            dstring = ' '.join(deps)
+            dstring = ' '.join(map(str, deps))
             ostring = replace_extension(obj, self.extensions, self.object_extension)
 
             mkfile.write('%s: %s\n' % (ostring, dstring))
@@ -738,4 +709,4 @@ class ProjectParser:
         mkfile.close()
 
         if self.verbose:
-            print('created:             ', self.makefile_name)
+            print(f'{"creaeted:":21s} {self.makefile_name}')
